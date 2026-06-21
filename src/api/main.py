@@ -17,10 +17,14 @@ _scheduler: Any = None
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    from src.config import settings
     from src.data.redis_client import redis_client
     from src.data.timescale_client import timescale_client
-    from src.harness.agent_loop import create_scheduler
+    from src.harness.agent_loop import _scheduled_run_tick, create_scheduler
+    from src.harness.audit_logger import configure_audit_logger
     from src.harness.kill_switch import kill_switch_monitor
+
+    configure_audit_logger(settings.log_dir, settings.log_level)
 
     await redis_client.connect()
     await timescale_client.connect()
@@ -28,6 +32,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _scheduler
     _scheduler = create_scheduler()
     _scheduler.start()
+
+    # Don't make the operator wait up to TICK_INTERVAL_SECONDS for the first tick.
+    _background_tasks.append(asyncio.create_task(_scheduled_run_tick()))
 
     _background_tasks.append(asyncio.create_task(kill_switch_monitor.run()))
 
