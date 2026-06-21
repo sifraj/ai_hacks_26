@@ -1,4 +1,5 @@
 import numpy as np
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
@@ -55,7 +56,7 @@ class TestGenerateSignal:
         metrics["rsi"] = 20.0
         metrics["close"] = metrics["bb_lower"]
 
-        signal = analyst._generate_signal("BTC-USD", metrics)
+        signal = analyst._generate_signal("BTC-USD", metrics, datetime.now(timezone.utc))
         assert signal is not None
         assert signal.direction == "LONG"
         expected_confidence = min(((30 - 20.0) / 30) * 0.8, MAX_CONFIDENCE)
@@ -68,7 +69,7 @@ class TestGenerateSignal:
         metrics["rsi"] = 80.0
         metrics["close"] = metrics["bb_upper"]
 
-        signal = analyst._generate_signal("ETH-USD", metrics)
+        signal = analyst._generate_signal("ETH-USD", metrics, datetime.now(timezone.utc))
         assert signal is not None
         assert signal.direction == "SHORT"
 
@@ -80,7 +81,7 @@ class TestGenerateSignal:
         metrics["volume_ratio"] = 5.0
         metrics["price_change_24h_pct"] = 0.05
 
-        signal = analyst._generate_signal("BTC-USD", metrics)
+        signal = analyst._generate_signal("BTC-USD", metrics, datetime.now(timezone.utc))
         assert signal.confidence_score <= MAX_CONFIDENCE
 
     def test_macd_bullish_crossover_generates_long_when_no_rsi_extreme(self, analyst):
@@ -95,7 +96,7 @@ class TestGenerateSignal:
         metrics["macd"] = 0.2
         metrics["macd_signal"] = 0.1
 
-        signal = analyst._generate_signal("SOL-USD", metrics)
+        signal = analyst._generate_signal("SOL-USD", metrics, datetime.now(timezone.utc))
         assert signal is not None
         assert signal.direction == "LONG"
         assert signal.confidence_score == pytest.approx(0.5, abs=1e-6)
@@ -114,7 +115,7 @@ class TestGenerateSignal:
         metrics["volume_ratio"] = 3.0
         metrics["price_change_24h_pct"] = 0.02
 
-        signal = analyst._generate_signal("SOL-USD", metrics)
+        signal = analyst._generate_signal("SOL-USD", metrics, datetime.now(timezone.utc))
         assert signal.confidence_score == pytest.approx(0.6, abs=1e-6)
 
     def test_no_signal_when_no_condition_met(self, analyst):
@@ -129,7 +130,7 @@ class TestGenerateSignal:
         metrics["macd"] = 0.1
         metrics["macd_signal"] = 0.1
 
-        signal = analyst._generate_signal("ADA-USD", metrics)
+        signal = analyst._generate_signal("ADA-USD", metrics, datetime.now(timezone.utc))
         assert signal is None
 
 
@@ -140,7 +141,7 @@ class TestAnalyzeAsset:
             return []
 
         monkeypatch.setattr(momentum_module.timescale_client, "get_ohlcv", fake_get_ohlcv)
-        result = await analyst._analyze_asset("BTC-USD")
+        result = await analyst._analyze_asset("BTC-USD", datetime.now(timezone.utc))
         assert result is None
 
     @pytest.mark.asyncio
@@ -156,9 +157,33 @@ class TestAnalyzeAsset:
 
         monkeypatch.setattr(momentum_module.timescale_client, "get_ohlcv", fake_get_ohlcv)
 
-        result = await analyst._analyze_asset("BTC-USD")
+        result = await analyst._analyze_asset("BTC-USD", datetime.now(timezone.utc))
         # A steady, strong decline should trigger the oversold LONG rule.
         if result is not None:
             assert result.asset == "BTC-USD"
             assert result.source_agent == "momentum_analyst"
             assert 0.0 <= result.confidence_score <= MAX_CONFIDENCE
+
+
+class TestAsOfThreading:
+    @pytest.mark.asyncio
+    async def test_fetch_candles_queries_relative_to_as_of_not_real_now(self, analyst, monkeypatch):
+        # Regression test for the backtest bug: momentum_analyst used to hardcode
+        # datetime.now(), silently using *today's* real candles during a backtest
+        # over a historical window. The query range must follow the simulated clock.
+        captured = {}
+
+        async def fake_get_ohlcv(asset, start, end, interval):
+            captured["start"] = start
+            captured["end"] = end
+            return [{"close": 1, "high": 1, "low": 1, "open": 1, "volume": 1} for _ in range(40)]
+
+        monkeypatch.setattr(momentum_module.timescale_client, "get_ohlcv", fake_get_ohlcv)
+
+        historical_as_of = datetime(2026, 3, 15, 12, 0, tzinfo=timezone.utc)
+        await analyst._fetch_candles("BTC-USD", historical_as_of)
+
+        assert captured["end"] == historical_as_of
+        assert captured["start"] == historical_as_of - timedelta(days=7)
+        # Must not be anywhere near the real current time.
+        assert abs((captured["end"] - datetime.now(timezone.utc)).days) > 30

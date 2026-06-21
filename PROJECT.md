@@ -185,21 +185,4 @@ worked."
   with OKX
 - Real (not paper) execution behind an explicit, separately-gated feature flag —
   by design, currently impossible without a deliberate code change
-
----
-
-## 8. Suggested Slide Outline
-
-1. **Title** — "We built a hedge fund's org chart out of Claude agents"
-2. **The problem** — single-prompt trading demos vs. real fund structure (role
-   separation, hard limits, audit trail)
-3. **Architecture diagram** — the pipeline from §3.1 above
-4. **The non-negotiable boundary** — LLMs propose, code enforces (§3.2 risk rule
-   table is a great visual)
-5. **Live demo** — dashboard walkthrough (Overview → Signal Feed → Trade Log →
-   Agent Monitor)
-6. **Engineering war stories** — pick 2–3 from §4 (the JSON-fence bug and the
-   realized-P&L bug are the most visually demonstrable — show before/after numbers)
-7. **Live numbers** — §5 stats, ideally refreshed right before presenting
-8. **Safety design** — kill switch + paper-trading enforcement
-9. **What's next**
+- Add more asset classes to diversify away from crypto now that markets are reopening for trading

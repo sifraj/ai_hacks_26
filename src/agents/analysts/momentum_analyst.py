@@ -24,15 +24,16 @@ class MomentumAnalyst(BaseAgent):
         super().__init__(name="momentum_analyst", allowed_tools=["read_normalized_data", "write_signal"])
 
     async def _run_impl(self, context: dict[str, Any]) -> dict[str, Any]:
+        as_of = context.get("as_of") or datetime.now(timezone.utc)
         signals: list[Signal] = []
         for asset in ASSETS:
-            signal = await self._analyze_asset(asset)
+            signal = await self._analyze_asset(asset, as_of)
             if signal is not None:
                 signals.append(signal)
         return {"signals": signals}
 
-    async def _fetch_candles(self, asset: str) -> pd.DataFrame | None:
-        end = datetime.now(timezone.utc)
+    async def _fetch_candles(self, asset: str, as_of: datetime) -> pd.DataFrame | None:
+        end = as_of
         start = end - timedelta(hours=24 * 7)  # 7 days of 1h candles
         rows = await timescale_client.get_ohlcv(asset, start, end, "1h")
         if len(rows) < MIN_CANDLES_REQUIRED:
@@ -83,7 +84,7 @@ class MomentumAnalyst(BaseAgent):
             "price_change_24h_pct": price_change_24h_pct,
         }
 
-    def _generate_signal(self, asset: str, metrics: dict[str, float]) -> Signal | None:
+    def _generate_signal(self, asset: str, metrics: dict[str, float], as_of: datetime) -> Signal | None:
         direction: str | None = None
         confidence = 0.0
         supporting: list[str] = []
@@ -137,7 +138,7 @@ class MomentumAnalyst(BaseAgent):
         confidence = min(confidence, MAX_CONFIDENCE)
 
         return Signal(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=as_of.isoformat(),
             source_agent="momentum_analyst",
             asset=asset,
             direction=direction,
@@ -154,8 +155,8 @@ class MomentumAnalyst(BaseAgent):
             },
         )
 
-    async def _analyze_asset(self, asset: str) -> Signal | None:
-        df = await self._fetch_candles(asset)
+    async def _analyze_asset(self, asset: str, as_of: datetime) -> Signal | None:
+        df = await self._fetch_candles(asset, as_of)
         if df is None:
             self.logger.info(
                 "momentum_insufficient_data",
@@ -174,7 +175,7 @@ class MomentumAnalyst(BaseAgent):
             return None
 
         try:
-            signal = self._generate_signal(asset, metrics)
+            signal = self._generate_signal(asset, metrics, as_of)
         except Exception as e:
             self.logger.error(
                 "momentum_signal_generation_failed",
@@ -198,8 +199,8 @@ class MomentumAnalyst(BaseAgent):
 
         return signal
 
-    async def run(self, tick_id: str) -> list[Signal]:
-        result = await super().run({"tick_id": tick_id})
+    async def run(self, tick_id: str, as_of: datetime | None = None) -> list[Signal]:
+        result = await super().run({"tick_id": tick_id, "as_of": as_of})
         return result["signals"]
 
 

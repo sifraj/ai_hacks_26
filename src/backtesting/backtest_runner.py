@@ -83,19 +83,24 @@ class BacktestRunner:
                 break
         return candidate
 
-    async def _generate_signals(self, tick_id: str) -> SignalBatch:
+    async def _generate_signals(self, tick_id: str, as_of: datetime) -> SignalBatch:
         results = []
-        for analyst in (momentum_analyst, sentiment_analyst, onchain_analyst):
-            try:
-                results.extend(await analyst.run(tick_id))
-            except Exception as e:
-                logger.error(
-                    "backtest_analyst_failed",
-                    event_type="backtest_analyst_failed",
-                    payload={"analyst": analyst.name, "error": str(e)},
-                )
+        # momentum_analyst is the only analyst that's backtest-aware (it queries
+        # TimescaleDB relative to an explicit timestamp). sentiment/onchain read a
+        # live Redis cache with no historical concept, so they're skipped here —
+        # calling them during a backtest would silently inject *today's* live news/
+        # on-chain data into a historical tick, which is wrong for the same reason
+        # the as_of fix below matters for momentum.
+        try:
+            results.extend(await momentum_analyst.run(tick_id, as_of=as_of))
+        except Exception as e:
+            logger.error(
+                "backtest_analyst_failed",
+                event_type="backtest_analyst_failed",
+                payload={"analyst": momentum_analyst.name, "error": str(e)},
+            )
         return SignalBatch(
-            tick_id=tick_id, timestamp=datetime.now(timezone.utc).isoformat(), signals=results
+            tick_id=tick_id, timestamp=as_of.isoformat(), signals=results
         )
 
     async def run(
@@ -129,7 +134,7 @@ class BacktestRunner:
                 current_time += tick_interval
                 continue
 
-            signal_batch = await self._generate_signals(tick_id)
+            signal_batch = await self._generate_signals(tick_id, current_time)
             for s in signal_batch.signals:
                 signal_source_agents[s.signal_id] = s.source_agent
 
