@@ -34,7 +34,7 @@ async def test_valid_llm_response_parsed_into_regime(agent, monkeypatch):
         '"signal_ids_cited": ["a", "b", "c"]}'
     )
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         return valid_json
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
@@ -48,7 +48,7 @@ async def test_valid_llm_response_parsed_into_regime(agent, monkeypatch):
 async def test_invalid_json_falls_back_to_ranging_defensive(agent, monkeypatch):
     batch = _signal_batch()
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         return "not valid json at all"
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
@@ -63,7 +63,7 @@ async def test_invalid_json_falls_back_to_ranging_defensive(agent, monkeypatch):
 async def test_llm_call_failure_falls_back(agent, monkeypatch):
     batch = _signal_batch()
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         raise RuntimeError("API down")
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
@@ -77,7 +77,7 @@ async def test_llm_call_failure_falls_back(agent, monkeypatch):
 async def test_fallback_pads_citations_when_fewer_than_three_signals(agent, monkeypatch):
     batch = _signal_batch(n=1)
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         raise RuntimeError("API down")
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
@@ -96,7 +96,7 @@ async def test_schema_invalid_response_falls_back(agent, monkeypatch):
         '"regime_rationale": "x", "signal_ids_cited": ["a", "b", "c"]}'
     )
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         return invalid_json
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
@@ -116,7 +116,7 @@ async def test_markdown_fenced_response_is_parsed_not_fallback(agent, monkeypatc
         '```'
     )
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         return fenced_json
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
@@ -136,7 +136,7 @@ async def test_aliased_field_names_are_recovered_not_fallback(agent, monkeypatch
         f'"regime_rationale": "mixed signals", "key_signals_cited": ["{real_id}"]}}'
     )
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         return aliased_json
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
@@ -160,7 +160,7 @@ async def test_recovery_pads_with_real_signal_ids_when_few_cited(agent, monkeypa
         '"regime_rationale": "thin data", "signal_ids_cited": []}'
     )
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000, **_kw):
         return aliased_json
 
     monkeypatch.setattr(agent, "_call_llm", fake_call_llm)

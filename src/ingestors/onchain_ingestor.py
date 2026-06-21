@@ -145,6 +145,9 @@ class OnChainIngestor:
             "funding_rate": raw.funding_rate,
             "open_interest_usd": raw.open_interest_usd,
             "liquidations_24h_usd": raw.liquidations_24h_usd,
+            # Explicit fetch time so the analyst's freshness gate doesn't have to
+            # infer age from the Redis TTL (fragile if the TTL constant changes).
+            "fetched_at": time.time(),
         }
         await redis_client.client.set(
             f"onchain:raw:{asset}",

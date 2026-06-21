@@ -16,12 +16,15 @@ from src.agents.analysts.momentum_analyst import momentum_analyst
 from src.agents.analysts.onchain_analyst import onchain_analyst
 from src.agents.analysts.sentiment_analyst import sentiment_analyst
 from src.agents import state_manager
+from src.agents.base_agent import llm_budget
 from src.config import settings
+from src.data.redis_client import redis_client
 from src.harness.audit_logger import get_logger, log_tick_summary
 from src.harness.websocket_broadcaster import broadcast_tick_update
 from src.ingestors.market_ingestor import market_ingestor
 from src.ingestors.onchain_ingestor import onchain_ingestor
 from src.ingestors.sentiment_ingestor import sentiment_ingestor
+from src.paper_trading.paper_engine import paper_engine
 from src.schemas.signals import Signal, SignalBatch
 
 logger = get_logger("agent_loop")
@@ -55,6 +58,7 @@ async def _safe_broadcast(message: dict) -> None:
 
 async def run_tick(tick_id: str) -> None:
     start = time.monotonic()
+    llm_budget.reset()  # fresh per-tick LLM-call budget (cost control)
 
     portfolio_state = await state_manager.get_state()
     if portfolio_state.kill_switch:
@@ -74,6 +78,10 @@ async def run_tick(tick_id: str) -> None:
             onchain_ingestor.run(),
         )
 
+        # Mark open positions to the freshly-ingested prices so the decision chain
+        # (and the post-fill risk checks) operate on live unrealized P&L / drawdown.
+        await paper_engine.mark_to_market()
+
         # Phase 2: Parallel analysis
         signals = await asyncio.gather(
             momentum_analyst.run(tick_id),
@@ -87,6 +95,8 @@ async def run_tick(tick_id: str) -> None:
         )
         for s in signal_batch.signals:
             await _safe_broadcast({"event_type": "signal_generated", "payload": s.model_dump()})
+            # Persist to Redis so signal history is queryable beyond the live stream.
+            await redis_client.publish_signal(s.asset, s.model_dump())
 
         # Phase 3: Sequential decision chain
         regime = await cio_agent.run(signal_batch)
@@ -156,7 +166,9 @@ async def run_tick(tick_id: str) -> None:
                     }
                 )
 
-        # Phase 4: State update
+        # Phase 4: State update — mark to market once more so the hard risk checks
+        # in process_fills see current valuations, not just the fill prices.
+        await paper_engine.mark_to_market()
         updated_state = await state_manager.process_fills(fills)
         await log_tick_summary(tick_id, signal_batch, regime, proposed, approved, cleared, fills)
         await broadcast_tick_update(tick_id, updated_state)

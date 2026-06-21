@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from src.data.redis_client import redis_client
 from src.harness.audit_logger import get_logger
@@ -41,14 +42,17 @@ async def _check_hard_risk_rules(state: PortfolioState) -> PortfolioState:
         await kill_switch_monitor._activate("RISK_001_drawdown")
         state = await paper_engine.get_portfolio_state()
 
-    # RISK_002: daily loss > 3% -> halt new positions for remainder of session
+    # RISK_002: daily loss > 3% -> halt new positions for remainder of session.
+    # Store today's date so the halt is sticky for the day yet auto-clears tomorrow;
+    # risk_manager reads this flag to reject new BUYs even if daily P&L recovers.
     if state.daily_pnl_pct < -DAILY_LOSS_LIMIT_PCT:
         logger.error(
             "RISK_002_BREACHED",
             event_type="RISK_002_BREACHED",
             payload={"daily_pnl_pct": state.daily_pnl_pct},
         )
-        await redis_client.client.set(TRADING_HALTED_KEY, "true")
+        today = datetime.now(timezone.utc).date().isoformat()
+        await redis_client.client.set(TRADING_HALTED_KEY, today)
 
     return state
 

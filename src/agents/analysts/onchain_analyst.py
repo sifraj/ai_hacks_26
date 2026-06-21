@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -46,12 +47,13 @@ class OnChainAnalyst(BaseAgent):
         raw_by_asset: dict[str, dict] = {}
         async for key in redis_client.client.scan_iter(match=f"{ONCHAIN_RAW_KEY_PREFIX}:*"):
             asset = key.split(":")[-1]
-            ttl_remaining = await redis_client.client.ttl(key)
-            if ttl_remaining is None or ttl_remaining < 0:
+            raw = await redis_client.client.get(key)
+            if not raw:
                 continue
+            data = json.loads(raw)
 
-            age_seconds = ONCHAIN_TTL_SECONDS - ttl_remaining
-            if age_seconds > FRESHNESS_LIMIT_SECONDS:
+            age_seconds = await self._data_age_seconds(key, data)
+            if age_seconds is None or age_seconds > FRESHNESS_LIMIT_SECONDS:
                 self.logger.info(
                     "onchain_data_stale_skipped",
                     event_type="onchain_data_stale_skipped",
@@ -59,10 +61,19 @@ class OnChainAnalyst(BaseAgent):
                 )
                 continue
 
-            raw = await redis_client.client.get(key)
-            if raw:
-                raw_by_asset[asset] = json.loads(raw)
+            raw_by_asset[asset] = data
         return raw_by_asset
+
+    async def _data_age_seconds(self, key: str, data: dict) -> float | None:
+        # Prefer the explicit fetch timestamp; fall back to inferring from the TTL
+        # for any payloads written before fetched_at was added.
+        fetched_at = data.get("fetched_at")
+        if isinstance(fetched_at, (int, float)):
+            return time.time() - fetched_at
+        ttl_remaining = await redis_client.client.ttl(key)
+        if ttl_remaining is None or ttl_remaining < 0:
+            return None
+        return ONCHAIN_TTL_SECONDS - ttl_remaining
 
     def _build_user_message(self, asset: str, data: dict) -> str:
         return (

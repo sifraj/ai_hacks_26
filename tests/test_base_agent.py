@@ -120,3 +120,43 @@ async def test_call_llm_logs_and_reraises_on_failure(agent):
         await agent._call_llm(messages=[{"role": "user", "content": "hi"}], system_prompt="sys")
 
     assert any(e[0] == "llm_call_failed" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_llm_budget_enforced_for_non_critical_calls(agent, monkeypatch):
+    import src.agents.base_agent as base_agent_module
+    from src.agents.base_agent import LLMBudgetExceeded
+
+    monkeypatch.setattr(base_agent_module.settings, "max_llm_calls_per_tick", 2)
+    base_agent_module.llm_budget.reset()
+
+    fake_response = SimpleNamespace(
+        content=[SimpleNamespace(text="ok")],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+    )
+    agent._anthropic.messages.create = AsyncMock(return_value=fake_response)
+
+    await agent._call_llm(messages=[{"role": "user", "content": "1"}], system_prompt="s")
+    await agent._call_llm(messages=[{"role": "user", "content": "2"}], system_prompt="s")
+    with pytest.raises(LLMBudgetExceeded):
+        await agent._call_llm(messages=[{"role": "user", "content": "3"}], system_prompt="s")
+
+
+@pytest.mark.asyncio
+async def test_critical_llm_calls_bypass_budget(agent, monkeypatch):
+    import src.agents.base_agent as base_agent_module
+
+    monkeypatch.setattr(base_agent_module.settings, "max_llm_calls_per_tick", 0)
+    base_agent_module.llm_budget.reset()
+
+    fake_response = SimpleNamespace(
+        content=[SimpleNamespace(text="ok")],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+    )
+    agent._anthropic.messages.create = AsyncMock(return_value=fake_response)
+
+    # Budget is 0 — a non-critical call is blocked, but a critical one still runs.
+    result = await agent._call_llm(
+        messages=[{"role": "user", "content": "x"}], system_prompt="s", critical=True
+    )
+    assert result == "ok"

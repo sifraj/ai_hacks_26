@@ -42,7 +42,7 @@ async def test_valid_response_parsed_into_trades(manager, monkeypatch):
         }
     ])
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         return valid_json
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
@@ -55,7 +55,7 @@ async def test_valid_response_parsed_into_trades(manager, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_llm_failure_returns_empty_list(manager, monkeypatch):
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         raise RuntimeError("API down")
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
@@ -66,7 +66,7 @@ async def test_llm_failure_returns_empty_list(manager, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_invalid_json_returns_empty_list(manager, monkeypatch):
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         return "not json"
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
@@ -84,7 +84,7 @@ async def test_invalid_trade_items_are_skipped_others_kept(manager, monkeypatch)
          "stop_loss_pct": 0.02, "trade_rationale": "x", "confidence_composite": 0.5},
     ])
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         return valid_json
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
@@ -107,7 +107,7 @@ async def test_capped_at_max_proposed_trades(manager, monkeypatch):
     ]
     valid_json = json.dumps(items)
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         return valid_json
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
@@ -133,7 +133,7 @@ async def test_unknown_asset_is_rejected(manager, monkeypatch):
          "stop_loss_pct": 0.02, "trade_rationale": "x", "confidence_composite": 0.5},
     ])
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         return valid_json
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
@@ -152,7 +152,7 @@ async def test_hallucinated_signal_ids_are_sanitized_not_rejected(manager, monke
          "signal_ids": [real_id, "hallucinated-id-123"]},
     ])
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         return valid_json
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
@@ -169,7 +169,7 @@ async def test_negative_size_rejected_by_schema(manager, monkeypatch):
          "stop_loss_pct": 0.02, "trade_rationale": "x", "confidence_composite": 0.5},
     ])
 
-    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000, **_kw):
         return valid_json
 
     monkeypatch.setattr(manager, "_call_llm", fake_call_llm)

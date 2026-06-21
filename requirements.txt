@@ -17,7 +17,9 @@ redis[hiredis]>=5.0.0
 # Technical Analysis
 pandas>=2.2.0
 pandas-ta>=0.3.14b
-numpy>=1.26.0
+# pandas-ta / numba carry C extensions compiled against the NumPy 1.x ABI; NumPy 2.x
+# triggers "compiled using NumPy 1.x cannot be run in NumPy 2.x" warnings/crashes.
+numpy>=1.26.0,<2.0
 
 # Scheduling
 apscheduler>=3.10.0

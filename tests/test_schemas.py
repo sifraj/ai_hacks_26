@@ -253,7 +253,7 @@ class TestClearedTradeAndFill:
 class TestPortfolioState:
     def test_position_and_state(self):
         position = Position(
-            asset="BTC-USD", size_usd=2000.0, entry_price=65000.0, current_price=66000.0,
+            asset="BTC-USD", quantity=0.03, size_usd=2000.0, entry_price=65000.0, current_price=66000.0,
             unrealized_pnl_usd=30.0, unrealized_pnl_pct=0.015, stop_loss_price=63700.0,
         )
         state = PortfolioState(

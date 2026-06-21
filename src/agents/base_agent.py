@@ -15,6 +15,32 @@ LLM_MODEL = "claude-sonnet-4-6"
 SLOW_LATENCY_MS = 5000.0
 
 
+class LLMBudgetExceeded(Exception):
+    """Raised when a tick has consumed its configured LLM-call budget."""
+
+
+class _LLMBudget:
+    """Per-tick global LLM-call budget (cost control). Reset at the start of each
+    tick by the agent loop; every _call_llm consumes one unit. Agents already treat
+    an LLM failure as a graceful fallback, so exceeding the budget degrades cleanly."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def reset(self) -> None:
+        self.count = 0
+
+    def check_and_increment(self) -> None:
+        if self.count >= settings.max_llm_calls_per_tick:
+            raise LLMBudgetExceeded(
+                f"per-tick LLM call budget ({settings.max_llm_calls_per_tick}) exhausted"
+            )
+        self.count += 1
+
+
+llm_budget = _LLMBudget()
+
+
 class BaseAgent(ABC):
     def __init__(self, name: str, allowed_tools: list[str], logger=None) -> None:
         self.name = name
@@ -84,7 +110,13 @@ class BaseAgent(ABC):
         messages: list[dict[str, str]],
         system_prompt: str,
         max_tokens: int = 1000,
+        critical: bool = False,
     ) -> str:
+        # The per-tick budget caps variable analyst spend. The decision chain
+        # (CIO, PM) passes critical=True so a budget exhausted by the analysts can't
+        # starve the agents that actually set posture and propose trades.
+        if not critical:
+            llm_budget.check_and_increment()
         start = time.monotonic()
         try:
             response = await self._anthropic.messages.create(

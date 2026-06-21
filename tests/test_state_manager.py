@@ -125,12 +125,16 @@ async def test_check_hard_risk_rules_breaches_drawdown_triggers_kill_switch(
 async def test_check_hard_risk_rules_breaches_daily_loss_sets_halted_flag(
     fake_redis, fake_kill_switch, monkeypatch
 ):
+    from datetime import datetime, timezone
+
     state = _state(daily_pnl_pct=-0.05)
     fake_paper_engine(monkeypatch, state)
 
     await _check_hard_risk_rules(state)
 
-    assert fake_redis.client.kv[TRADING_HALTED_KEY] == "true"
+    # Halt flag now stores today's date (sticky-for-the-day, auto-expires tomorrow).
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert fake_redis.client.kv[TRADING_HALTED_KEY] == today
     assert fake_kill_switch.activated_with is None
 
 

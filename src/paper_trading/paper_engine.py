@@ -91,7 +91,8 @@ class PaperTradingEngine:
         return await self._market_data.get_price(asset)
 
     def _recalculate_totals(self, state: PortfolioState) -> PortfolioState:
-        positions_value = sum(p.size_usd + p.unrealized_pnl_usd for p in state.positions)
+        # size_usd is already marked to market (quantity * current_price).
+        positions_value = sum(p.size_usd for p in state.positions)
         total_value = state.cash_usd + positions_value
         state.total_value_usd = total_value
         state.session_high_usd = max(state.session_high_usd, total_value)
@@ -114,16 +115,24 @@ class PaperTradingEngine:
 
         if cleared_trade.side == "BUY":
             fill_price = market_price * (1 + slippage_pct)
+            executed_notional = cleared_trade.final_size_usd
         else:
             fill_price = market_price * (1 - slippage_pct)
+            # Refuse naked sells, and never sell more than the open position is worth.
+            state = await self.get_portfolio_state()
+            existing = next((p for p in state.positions if p.asset == cleared_trade.asset), None)
+            if existing is None or existing.quantity <= 0:
+                raise ValueError(f"cannot sell {cleared_trade.asset}: no open position")
+            position_value_at_fill = existing.quantity * fill_price
+            executed_notional = min(cleared_trade.final_size_usd, position_value_at_fill)
 
-        fee_usd = cleared_trade.final_size_usd * TAKER_FEE_PCT
+        fee_usd = executed_notional * TAKER_FEE_PCT
 
         fill = Fill(
             cleared_id=cleared_trade.cleared_id,
             asset=cleared_trade.asset,
             side=cleared_trade.side,
-            filled_size_usd=cleared_trade.final_size_usd,
+            filled_size_usd=executed_notional,
             fill_price=fill_price,
             fee_usd=fee_usd,
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -144,52 +153,75 @@ class PaperTradingEngine:
         positions_by_asset = {p.asset: p for p in state.positions}
         existing = positions_by_asset.get(fill.asset)
 
+        # Convert the order's USD notional into base-asset quantity at the fill price.
+        qty = fill.filled_size_usd / fill.fill_price
+
         if fill.side == "BUY":
             state.cash_usd -= fill.filled_size_usd + fill.fee_usd
             if existing is None:
-                stop_loss_price = fill.fill_price * (1 - stop_loss_pct)
                 new_position = Position(
                     asset=fill.asset,
+                    quantity=qty,
                     size_usd=fill.filled_size_usd,
                     entry_price=fill.fill_price,
                     current_price=fill.fill_price,
                     unrealized_pnl_usd=0.0,
                     unrealized_pnl_pct=0.0,
-                    stop_loss_price=stop_loss_price,
+                    stop_loss_price=fill.fill_price * (1 - stop_loss_pct),
                 )
                 state.positions.append(new_position)
             else:
-                total_size = existing.size_usd + fill.filled_size_usd
+                new_qty = existing.quantity + qty
                 existing.entry_price = (
-                    (existing.entry_price * existing.size_usd) + (fill.fill_price * fill.filled_size_usd)
-                ) / total_size
-                existing.size_usd = total_size
+                    (existing.entry_price * existing.quantity) + (fill.fill_price * qty)
+                ) / new_qty
+                existing.quantity = new_qty
                 existing.current_price = fill.fill_price
                 existing.stop_loss_price = existing.entry_price * (1 - stop_loss_pct)
-        else:  # SELL — reduce or close position
-            state.cash_usd += fill.filled_size_usd - fill.fee_usd
-            if existing is not None:
-                existing.size_usd -= fill.filled_size_usd
-                existing.current_price = fill.fill_price
-                if existing.size_usd <= 0:
-                    state.positions = [p for p in state.positions if p.asset != fill.asset]
+        else:  # SELL — settle proceeds at market value and book realized P&L
+            if existing is None:
+                raise ValueError(f"cannot sell {fill.asset}: no open position")
+            qty_sold = min(qty, existing.quantity)
+            proceeds = qty_sold * fill.fill_price
+            realized_pnl = qty_sold * (fill.fill_price - existing.entry_price)
+
+            state.cash_usd += proceeds - fill.fee_usd
+            state.realized_pnl_usd += realized_pnl
+            existing.quantity -= qty_sold
+            existing.current_price = fill.fill_price
+            if existing.quantity <= 1e-9:
+                state.positions = [p for p in state.positions if p.asset != fill.asset]
 
         state = self._recompute_unrealized_pnl(state)
         state = self._recalculate_totals(state)
+        state = self._update_daily_pnl(state)
         state.timestamp = datetime.now(timezone.utc).isoformat()
         await self._save_state(state)
         return state
 
     def _recompute_unrealized_pnl(self, state: PortfolioState) -> PortfolioState:
         for position in state.positions:
+            position.size_usd = position.quantity * position.current_price
             position.unrealized_pnl_usd = (
-                (position.current_price - position.entry_price) / position.entry_price
-            ) * position.size_usd
+                position.current_price - position.entry_price
+            ) * position.quantity
             position.unrealized_pnl_pct = (
                 (position.current_price - position.entry_price) / position.entry_price
                 if position.entry_price > 0
                 else 0.0
             )
+        return state
+
+    def _update_daily_pnl(self, state: PortfolioState) -> PortfolioState:
+        today = datetime.now(timezone.utc).date().isoformat()
+        # Reset the daily baseline to the day's opening value on each new UTC day.
+        if state.daily_baseline_date != today or state.daily_baseline_usd <= 0:
+            state.daily_baseline_usd = state.total_value_usd
+            state.daily_baseline_date = today
+        state.daily_pnl_usd = state.total_value_usd - state.daily_baseline_usd
+        state.daily_pnl_pct = (
+            state.daily_pnl_usd / state.daily_baseline_usd if state.daily_baseline_usd > 0 else 0.0
+        )
         return state
 
     async def update_positions_with_prices(self, prices: dict[str, float]) -> PortfolioState:
@@ -200,15 +232,27 @@ class PaperTradingEngine:
 
         state = self._recompute_unrealized_pnl(state)
         state = self._recalculate_totals(state)
-
-        cash_baseline = INITIAL_CASH_USD
-        state.daily_pnl_usd = state.total_value_usd - cash_baseline
-        state.daily_pnl_pct = (
-            state.daily_pnl_usd / cash_baseline if cash_baseline > 0 else 0.0
-        )
+        state = self._update_daily_pnl(state)
         state.timestamp = datetime.now(timezone.utc).isoformat()
         await self._save_state(state)
         return state
+
+    async def mark_to_market(self) -> PortfolioState:
+        """Refresh all held positions against the latest market price so unrealized
+        P&L, drawdown, and daily P&L reflect current valuations. Safe to call when
+        flat (just rolls the daily baseline forward)."""
+        state = await self.get_portfolio_state()
+        prices: dict[str, float] = {}
+        for position in state.positions:
+            try:
+                prices[position.asset] = await self._get_market_price(position.asset)
+            except Exception as e:
+                logger.warning(
+                    "mark_to_market_price_unavailable",
+                    event_type="mark_to_market_price_unavailable",
+                    payload={"asset": position.asset, "error": str(e)},
+                )
+        return await self.update_positions_with_prices(prices)
 
     async def close_all_positions(self) -> list[Fill]:
         state = await self.get_portfolio_state()

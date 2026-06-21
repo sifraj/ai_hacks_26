@@ -51,6 +51,8 @@ def mock_pipeline(monkeypatch):
         execution_agent=SimpleNamespace(run=AsyncMock(return_value=[])),
         log_tick_summary=AsyncMock(),
         broadcast_tick_update=AsyncMock(),
+        paper_engine=SimpleNamespace(mark_to_market=AsyncMock()),
+        redis_client=SimpleNamespace(publish_signal=AsyncMock()),
     )
 
     for attr_name in vars(fakes):

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from src.agents.base_agent import BaseAgent
+from src.data.redis_client import redis_client
 from src.schemas.portfolio import PortfolioState, Position
 from src.schemas.trades import ProposedTrade, RiskDecision
 
@@ -15,6 +17,10 @@ DAILY_LOSS_LIMIT_PCT = 0.03  # RISK_002
 LONG_EXPOSURE_LIMIT_PCT = 0.80  # RISK_005
 SINGLE_POSITION_LOSS_LIMIT_PCT = 0.02  # RISK_003
 
+# Dated sticky halt flag set by the state manager on a RISK_002 breach. Its value is
+# the ISO date it was set on, so it auto-expires at the next UTC day rollover.
+TRADING_HALTED_KEY = "risk:trading_halted"
+
 
 class RiskManager(BaseAgent):
     def __init__(self) -> None:
@@ -25,6 +31,14 @@ class RiskManager(BaseAgent):
 
     async def _run_impl(self, context: dict[str, Any]) -> dict[str, Any]:
         return {"decisions": []}
+
+    async def _is_trading_halted(self) -> bool:
+        """True if a RISK_002 daily-loss halt is in effect for the current UTC day."""
+        try:
+            value = await redis_client.client.get(TRADING_HALTED_KEY)
+        except Exception:
+            return False
+        return value == datetime.now(timezone.utc).date().isoformat()
 
     def _existing_position(self, asset: str, state: PortfolioState) -> Position | None:
         return next((p for p in state.positions if p.asset == asset), None)
@@ -52,7 +66,9 @@ class RiskManager(BaseAgent):
 
         return min(formula_sized, remaining_asset_room)
 
-    def _evaluate_single(self, trade: ProposedTrade, state: PortfolioState) -> RiskDecision:
+    def _evaluate_single(
+        self, trade: ProposedTrade, state: PortfolioState, trading_halted: bool = False
+    ) -> RiskDecision:
         rules_checked: list[str] = []
 
         # RISK_006: kill switch active -> reject ALL trades
@@ -80,13 +96,23 @@ class RiskManager(BaseAgent):
                 rules_violated=["RISK_001"],
             )
 
-        # RISK_002: daily loss > 3% -> no new positions for remainder of session
+        # RISK_002: daily loss > 3% -> no new positions for remainder of session.
+        # Reject if currently breaching OR if a sticky halt was tripped earlier today
+        # (the halt persists even if daily P&L recovers). SELLs to close are allowed.
         rules_checked.append("RISK_002")
         if state.daily_pnl_pct < -DAILY_LOSS_LIMIT_PCT:
             return RiskDecision(
                 proposal_id=trade.proposal_id,
                 status="REJECTED",
                 risk_rationale=f"Daily loss {state.daily_pnl_pct:.1%} exceeds {DAILY_LOSS_LIMIT_PCT:.0%} limit",
+                rules_checked=rules_checked,
+                rules_violated=["RISK_002"],
+            )
+        if trading_halted and trade.side == "BUY":
+            return RiskDecision(
+                proposal_id=trade.proposal_id,
+                status="REJECTED",
+                risk_rationale="Daily-loss trading halt is active for the session — no new positions",
                 rules_checked=rules_checked,
                 rules_violated=["RISK_002"],
             )
@@ -166,9 +192,10 @@ class RiskManager(BaseAgent):
     async def evaluate(
         self, proposed: list[ProposedTrade], state: PortfolioState
     ) -> list[RiskDecision]:
+        trading_halted = await self._is_trading_halted()
         decisions: list[RiskDecision] = []
         for trade in proposed:
-            decision = self._evaluate_single(trade, state)
+            decision = self._evaluate_single(trade, state, trading_halted)
             self.logger.info(
                 "risk_decision",
                 event_type="risk_decision",

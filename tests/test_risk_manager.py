@@ -64,7 +64,7 @@ class TestRiskOrderAndRejection:
 
     def test_long_exposure_breach_rejects(self, manager):
         existing = Position(
-            asset="ETH-USD", size_usd=75_000.0, entry_price=3000.0, current_price=3000.0,
+            asset="ETH-USD", quantity=25.0, size_usd=75_000.0, entry_price=3000.0, current_price=3000.0,
             unrealized_pnl_usd=0.0, unrealized_pnl_pct=0.0, stop_loss_price=2940.0,
         )
         state = _state(positions=[existing])
@@ -74,7 +74,7 @@ class TestRiskOrderAndRejection:
 
     def test_sell_side_not_blocked_by_long_exposure(self, manager):
         existing = Position(
-            asset="BTC-USD", size_usd=75_000.0, entry_price=60_000.0, current_price=60_000.0,
+            asset="BTC-USD", quantity=1.25, size_usd=75_000.0, entry_price=60_000.0, current_price=60_000.0,
             unrealized_pnl_usd=0.0, unrealized_pnl_pct=0.0, stop_loss_price=58_800.0,
         )
         state = _state(positions=[existing])
@@ -95,7 +95,8 @@ class TestRiskOrderAndRejection:
 
     def test_asset_at_cap_already_rejects(self, manager):
         existing = Position(
-            asset="BTC-USD", size_usd=20_000.0, entry_price=60_000.0, current_price=60_000.0,
+            asset="BTC-USD", quantity=20_000.0 / 60_000.0, size_usd=20_000.0, entry_price=60_000.0,
+            current_price=60_000.0,
             unrealized_pnl_usd=0.0, unrealized_pnl_pct=0.0, stop_loss_price=58_800.0,
         )
         state = _state(total_value_usd=100_000.0, positions=[existing])
@@ -105,7 +106,8 @@ class TestRiskOrderAndRejection:
 
     def test_single_position_loss_breach_rejects(self, manager):
         existing = Position(
-            asset="BTC-USD", size_usd=10_000.0, entry_price=60_000.0, current_price=57_000.0,
+            asset="BTC-USD", quantity=10_000.0 / 57_000.0, size_usd=10_000.0, entry_price=60_000.0,
+            current_price=57_000.0,
             unrealized_pnl_usd=-3000.0, unrealized_pnl_pct=-0.05, stop_loss_price=58_800.0,
         )
         state = _state(total_value_usd=100_000.0, positions=[existing])
@@ -121,6 +123,27 @@ class TestRiskOrderAndRejection:
         assert decision.status == "APPROVED"
         assert decision.approved_size_usd == 2000.0
         assert decision.rules_checked == ["RISK_006", "RISK_001", "RISK_002", "RISK_005", "RISK_004", "RISK_003"]
+
+    def test_sticky_halt_rejects_new_buys_even_when_daily_pnl_recovered(self, manager):
+        # daily_pnl has recovered above the -3% line, but the session halt is active.
+        state = _state(daily_pnl_pct=0.01)
+        decision = manager._evaluate_single(
+            _trade(asset="BTC-USD", side="BUY"), state, trading_halted=True
+        )
+        assert decision.status == "REJECTED"
+        assert decision.rules_violated == ["RISK_002"]
+
+    def test_sticky_halt_still_allows_sells_to_close(self, manager):
+        existing = Position(
+            asset="BTC-USD", quantity=1.0, size_usd=2000.0, entry_price=2000.0, current_price=2000.0,
+            unrealized_pnl_usd=0.0, unrealized_pnl_pct=0.0, stop_loss_price=1960.0,
+        )
+        state = _state(daily_pnl_pct=0.01, positions=[existing])
+        decision = manager._evaluate_single(
+            _trade(asset="BTC-USD", side="SELL"), state, trading_halted=True
+        )
+        # A SELL to reduce risk must not be blocked by the daily-loss halt.
+        assert decision.rules_violated != ["RISK_002"]
 
 
 class TestEvaluate:

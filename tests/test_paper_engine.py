@@ -120,11 +120,16 @@ async def test_second_buy_averages_entry_price(engine):
     state = await engine.get_portfolio_state()
     assert len(state.positions) == 1
     position = state.positions[0]
-    expected_entry = (
-        (fill1.fill_price * 2000.0) + (fill2.fill_price * 1000.0)
-    ) / 3000.0
-    assert position.size_usd == pytest.approx(3000.0)
+
+    qty1 = 2000.0 / fill1.fill_price
+    qty2 = 1000.0 / fill2.fill_price
+    expected_qty = qty1 + qty2
+    # Quantity-weighted average cost = total dollars in / total units.
+    expected_entry = 3000.0 / expected_qty
+    assert position.quantity == pytest.approx(expected_qty)
     assert position.entry_price == pytest.approx(expected_entry)
+    # size_usd is now marked to market at the latest fill price.
+    assert position.size_usd == pytest.approx(expected_qty * fill2.fill_price)
 
 
 @pytest.mark.asyncio
@@ -133,7 +138,8 @@ async def test_sell_reduces_position_and_increases_cash(engine):
         proposal_id="p1", asset="BTC-USD", side="BUY", order_type="MARKET",
         final_size_usd=2000.0, stop_loss_pct=0.02,
     )
-    await engine.execute_paper_order(buy)
+    buy_fill = await engine.execute_paper_order(buy)
+    qty_bought = 2000.0 / buy_fill.fill_price
     state_after_buy = await engine.get_portfolio_state()
     cash_after_buy = state_after_buy.cash_usd
 
@@ -142,11 +148,67 @@ async def test_sell_reduces_position_and_increases_cash(engine):
         final_size_usd=500.0, stop_loss_pct=0.02,
     )
     sell_fill = await engine.execute_paper_order(sell)
+    qty_sold = 500.0 / sell_fill.fill_price
 
     state = await engine.get_portfolio_state()
     assert len(state.positions) == 1
-    assert state.positions[0].size_usd == pytest.approx(1500.0)
+    remaining_qty = qty_bought - qty_sold
+    assert state.positions[0].quantity == pytest.approx(remaining_qty)
+    assert state.positions[0].size_usd == pytest.approx(remaining_qty * sell_fill.fill_price)
+    # Proceeds from selling $500 of notional at the fill price == $500 (minus fee).
     assert state.cash_usd == pytest.approx(cash_after_buy + 500.0 - sell_fill.fee_usd)
+
+
+@pytest.mark.asyncio
+async def test_sell_realizes_pnl_into_cash(engine, fake_timescale):
+    # The bug this guards against: selling a winner used to settle at cost basis,
+    # destroying the realized gain. A doubled position must return its full value.
+    buy = ClearedTrade(
+        proposal_id="p1", asset="BTC-USD", side="BUY", order_type="MARKET",
+        final_size_usd=10_000.0, stop_loss_pct=0.10,
+    )
+    buy_fill = await engine.execute_paper_order(buy)
+
+    # Price doubles.
+    doubled = buy_fill.fill_price * 2.0
+    fake_timescale.prices["BTC-USD"] = doubled
+    await engine.update_positions_with_prices({"BTC-USD": doubled})
+
+    state_before_sell = await engine.get_portfolio_state()
+    total_before = state_before_sell.total_value_usd
+
+    # Sell the entire position at the doubled price.
+    sell = ClearedTrade(
+        proposal_id="p2", asset="BTC-USD", side="SELL", order_type="MARKET",
+        final_size_usd=state_before_sell.positions[0].size_usd, stop_loss_pct=1.0,
+    )
+    sell_fill = await engine.execute_paper_order(sell)
+
+    state = await engine.get_portfolio_state()
+    assert state.positions == []
+    # Realized P&L should be ~the full appreciation (qty * (sell_price - entry_price)).
+    qty = 10_000.0 / buy_fill.fill_price
+    expected_realized = qty * (sell_fill.fill_price - buy_fill.fill_price)
+    assert state.realized_pnl_usd == pytest.approx(expected_realized, rel=1e-6)
+    assert state.realized_pnl_usd > 9_000.0  # a doubled $10k position => ~+$10k
+    # Total value should be preserved across the sale (only fees + sell-side
+    # slippage lost), NOT collapse back toward cost basis (~$100k).
+    assert state.total_value_usd == pytest.approx(total_before, rel=2e-3)
+    assert state.total_value_usd > 109_000.0
+
+
+@pytest.mark.asyncio
+async def test_naked_sell_with_no_position_is_rejected(engine):
+    sell = ClearedTrade(
+        proposal_id="p1", asset="BTC-USD", side="SELL", order_type="MARKET",
+        final_size_usd=1000.0, stop_loss_pct=1.0,
+    )
+    with pytest.raises(ValueError, match="no open position"):
+        await engine.execute_paper_order(sell)
+
+    state = await engine.get_portfolio_state()
+    # Cash must be untouched — a naked sell must not fabricate money.
+    assert state.cash_usd == pytest.approx(INITIAL_CASH_USD)
 
 
 @pytest.mark.asyncio

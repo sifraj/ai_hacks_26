@@ -80,6 +80,8 @@ def mock_pipeline(monkeypatch):
         execution_agent=SimpleNamespace(run=AsyncMock(return_value=[_fill()])),
         log_tick_summary=AsyncMock(),
         broadcast_tick_update=AsyncMock(),
+        paper_engine=SimpleNamespace(mark_to_market=AsyncMock()),
+        redis_client=SimpleNamespace(publish_signal=AsyncMock()),
     )
     for attr_name in vars(fakes):
         monkeypatch.setattr(agent_loop_module, attr_name, getattr(fakes, attr_name))
@@ -208,3 +210,20 @@ async def test_safe_broadcast_swallows_errors():
         await _safe_broadcast({"event_type": "x"})  # should not raise
     finally:
         main_module.broadcast = original
+
+
+@pytest.mark.asyncio
+async def test_marks_to_market_during_tick(mock_pipeline):
+    fakes, _ = mock_pipeline
+    await run_tick("tick-x")
+    # Live loop must mark positions to market (C2 regression): once before the
+    # decision chain and once before the post-fill risk checks.
+    assert fakes.paper_engine.mark_to_market.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_signals_persisted_to_redis(mock_pipeline):
+    fakes, _ = mock_pipeline
+    await run_tick("tick-x")
+    # The single momentum signal in the fixture should be persisted for history.
+    fakes.redis_client.publish_signal.assert_awaited()

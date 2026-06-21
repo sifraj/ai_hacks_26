@@ -123,6 +123,7 @@ class PortfolioManager(BaseAgent):
                 messages=[{"role": "user", "content": user_message}],
                 system_prompt=SYSTEM_PROMPT,
                 max_tokens=2000,
+                critical=True,  # trade proposals must not be starved by analyst spend
             )
         except Exception as e:
             self.logger.error(

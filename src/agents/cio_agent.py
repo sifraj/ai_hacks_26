@@ -133,6 +133,7 @@ class CIOAgent(BaseAgent):
                 messages=[{"role": "user", "content": user_message}],
                 system_prompt=SYSTEM_PROMPT,
                 max_tokens=1000,
+                critical=True,  # the regime call must not be starved by analyst spend
             )
         except Exception as e:
             self.logger.error(
