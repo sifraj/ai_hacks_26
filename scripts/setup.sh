@@ -7,12 +7,14 @@ cd "$PROJECT_ROOT"
 echo "Crypto Hedge Fund — Setup"
 echo "================================"
 
-# Copy .env if not exists
-if [ ! -f .env ]; then
+# Copy .env if not exists — back up any existing one first as a safety net
+if [ -f .env ]; then
+  backup=".env.backup.$(date +%Y%m%d%H%M%S)"
+  cp .env "$backup"
+  echo ".env already exists — backed up to $backup before doing anything else"
+else
   cp .env.example .env
   echo "Created .env from template — fill in API keys before starting"
-else
-  echo ".env already exists"
 fi
 
 # Start Docker services

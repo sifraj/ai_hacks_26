@@ -17,12 +17,14 @@ command -v node >/dev/null 2>&1 || { echo "❌ Node.js 18+ required (for dashboa
 
 echo "✅ Prerequisites OK"
 
-# Copy .env if not exists
-if [ ! -f .env ]; then
+# Copy .env if not exists — back up any existing one first as a safety net
+if [ -f .env ]; then
+  backup=".env.backup.$(date +%Y%m%d%H%M%S)"
+  cp .env "$backup"
+  echo "✅ .env already exists — backed up to $backup before doing anything else"
+else
   cp .env.example .env
   echo "⚠️  Created .env from template — FILL IN YOUR API KEYS before starting"
-else
-  echo "✅ .env already exists"
 fi
 
 # Create log directory
