@@ -24,7 +24,7 @@ logger = get_logger("backtest_runner")
 
 ASSETS = [
     "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
-    "ADA-USD", "AVAX-USD", "DOT-USD", "MATIC-USD", "LINK-USD",
+    "ADA-USD", "AVAX-USD", "DOT-USD", "POL-USD", "LINK-USD",
 ]
 
 ProgressCallback = Callable[[dict], Awaitable[None]]

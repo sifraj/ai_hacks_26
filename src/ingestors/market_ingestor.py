@@ -16,14 +16,14 @@ logger = get_logger("market_ingestor")
 # SPEC.md §4.1 asset universe (normalized "-USD" naming)
 ASSETS = [
     "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
-    "ADA-USD", "AVAX-USD", "DOT-USD", "MATIC-USD", "LINK-USD",
+    "ADA-USD", "AVAX-USD", "DOT-USD", "POL-USD", "LINK-USD",
 ]
 INTERVALS = ["5m", "1h", "1d"]
 
 
 def _to_ccxt_symbol(asset: str) -> str:
     base = asset.split("-")[0]
-    return f"{base}/USDT"
+    return f"{base}/USD"
 
 
 def _to_asset(ccxt_symbol: str) -> str:

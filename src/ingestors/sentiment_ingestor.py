@@ -28,7 +28,7 @@ ASSET_KEYWORDS: dict[str, list[str]] = {
     "ADA-USD": ["cardano", "ada"],
     "AVAX-USD": ["avalanche", "avax"],
     "DOT-USD": ["polkadot", "dot"],
-    "MATIC-USD": ["polygon", "matic"],
+    "POL-USD": ["polygon", "matic", "pol"],
     "LINK-USD": ["chainlink", "link"],
 }
 

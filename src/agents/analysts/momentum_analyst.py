@@ -12,7 +12,7 @@ from src.schemas.signals import Signal
 
 ASSETS = [
     "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
-    "ADA-USD", "AVAX-USD", "DOT-USD", "MATIC-USD", "LINK-USD",
+    "ADA-USD", "AVAX-USD", "DOT-USD", "POL-USD", "LINK-USD",
 ]
 
 MIN_CANDLES_REQUIRED = 30  # enough lookback for RSI(14)/MACD(12,26,9)/BB(20)
