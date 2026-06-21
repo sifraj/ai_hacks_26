@@ -1,0 +1,35 @@
+# Core
+anthropic>=0.30.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+
+# Data & Exchange
+ccxt>=4.3.0
+coinbase-advanced-py>=1.4.0
+aiohttp>=3.9.0
+
+# Database
+asyncpg>=0.29.0
+redis[hiredis]>=5.0.0
+
+# Technical Analysis
+pandas>=2.2.0
+pandas-ta>=0.3.14b
+numpy>=1.26.0
+
+# Scheduling
+apscheduler>=3.10.0
+
+# Logging
+structlog>=24.2.0
+
+# Utilities
+python-dotenv>=1.0.0
+httpx>=0.27.0
+tenacity>=8.3.0      # Retry logic with exponential backoff
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

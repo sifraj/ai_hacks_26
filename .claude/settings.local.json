@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/Users/alantalavera/Projects/ai_hacks_26/tests/test_state_manager.py'\\).read\\(\\)\\)\")"
+    ]
+  }
+}
