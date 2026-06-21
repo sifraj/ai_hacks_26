@@ -12,7 +12,7 @@ echo "================================"
 # Check prerequisites
 command -v python3 >/dev/null 2>&1 || { echo "❌ Python 3.11+ required"; exit 1; }
 command -v docker >/dev/null 2>&1 || { echo "❌ Docker required"; exit 1; }
-command -v docker-compose >/dev/null 2>&1 || { echo "❌ Docker Compose required"; exit 1; }
+docker compose version >/dev/null 2>&1 || { echo "❌ Docker Compose required (docker compose, not docker-compose)"; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "❌ Node.js 18+ required (for dashboard)"; exit 1; }
 
 echo "✅ Prerequisites OK"
@@ -36,12 +36,12 @@ echo "ℹ️  To trigger emergency kill switch: touch ./KILL_SWITCH"
 # Start Docker services
 echo ""
 echo "🐳 Starting Docker services (TimescaleDB + Redis)..."
-docker-compose up -d
+docker compose up -d
 echo "⏳ Waiting for services to be healthy..."
 sleep 5
 
 # Check health
-docker-compose ps
+docker compose ps
 
 # Install Python dependencies
 echo ""

@@ -19,11 +19,11 @@ fi
 
 # Start Docker services
 echo "Starting Docker services..."
-docker-compose up -d
+docker compose up -d
 
 echo "Waiting for services to be healthy..."
 sleep 5
-docker-compose ps
+docker compose ps
 
 # Install Python dependencies
 echo "Installing Python dependencies..."

@@ -1,3 +1,7 @@
+-- Mounting this directory as /docker-entrypoint-initdb.d replaces the
+-- timescaledb image's own init script, so we must enable the extension here.
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
 CREATE TABLE IF NOT EXISTS ohlcv (
     time   TIMESTAMPTZ NOT NULL,
     asset  TEXT NOT NULL,
