@@ -81,6 +81,17 @@ async def test_paper_trading_disabled_raises_and_is_caught(agent, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_paper_trading_disabled_raises_runtime_error_not_assert(agent, monkeypatch):
+    # Must be a real exception, not a bare `assert` — assertions are stripped
+    # under `python -O`, which would silently disable this safety gate.
+    execution_agent, fake_redis = agent
+    monkeypatch.setattr(execution_module.settings, "paper_trading", False)
+
+    with pytest.raises(RuntimeError, match="PAPER_TRADING must be true"):
+        await execution_agent._execute_one(_cleared(), signal_ids=[])
+
+
+@pytest.mark.asyncio
 async def test_one_failure_does_not_block_other_fills(agent, monkeypatch):
     execution_agent, fake_redis = agent
 

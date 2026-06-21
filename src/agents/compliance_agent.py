@@ -133,7 +133,9 @@ class ComplianceAgent(BaseAgent):
                 )
                 continue
 
-            approved_size_usd = decision.approved_size_usd or trade.size_usd
+            approved_size_usd = (
+                decision.approved_size_usd if decision.approved_size_usd is not None else trade.size_usd
+            )
 
             cleared, checks_passed, failed_rule = await self._check_trade(
                 trade, approved_size_usd, assets_seen_this_tick

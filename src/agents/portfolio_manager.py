@@ -5,6 +5,7 @@ from typing import Any
 
 from src.agents.base_agent import BaseAgent
 from src.agents.llm_json import strip_json_fences
+from src.ingestors.market_ingestor import ASSETS as KNOWN_ASSETS
 from src.schemas.portfolio import PortfolioState
 from src.schemas.regime import MarketRegime
 from src.schemas.signals import SignalBatch
@@ -56,18 +57,42 @@ class PortfolioManager(BaseAgent):
         }
         return json.dumps(payload)
 
-    def _parse_proposed_trades(self, raw_text: str, tick_id: str) -> list[ProposedTrade]:
+    def _parse_proposed_trades(self, raw_text: str, signal_batch: SignalBatch) -> list[ProposedTrade]:
         data = json.loads(strip_json_fences(raw_text))
         if not isinstance(data, list):
             raise ValueError("expected a JSON array of ProposedTrade objects")
+
+        real_signal_ids = {s.signal_id for s in signal_batch.signals}
 
         trades: list[ProposedTrade] = []
         for item in data:
             if not isinstance(item, dict):
                 continue
             item = dict(item)
-            item["tick_id"] = tick_id
+            item["tick_id"] = signal_batch.tick_id
             item.pop("proposal_id", None)
+
+            asset = item.get("asset")
+            if asset not in KNOWN_ASSETS:
+                self.logger.error(
+                    "portfolio_manager_trade_rejected",
+                    event_type="portfolio_manager_trade_rejected",
+                    payload={"error": f"unknown asset {asset!r}", "raw_item": item},
+                )
+                continue
+
+            # Drop hallucinated signal_ids that don't correspond to any real signal
+            # this tick, so the audit provenance chain stays trustworthy.
+            cited = item.get("signal_ids")
+            if isinstance(cited, list):
+                sanitized = [sid for sid in cited if sid in real_signal_ids]
+                if sanitized != cited:
+                    self.logger.warning(
+                        "portfolio_manager_signal_ids_sanitized",
+                        event_type="portfolio_manager_signal_ids_sanitized",
+                        payload={"original": cited, "sanitized": sanitized},
+                    )
+                item["signal_ids"] = sanitized
 
             try:
                 trade = ProposedTrade.model_validate(item)
@@ -108,7 +133,7 @@ class PortfolioManager(BaseAgent):
             return []
 
         try:
-            return self._parse_proposed_trades(raw_response, signal_batch.tick_id)
+            return self._parse_proposed_trades(raw_response, signal_batch)
         except (json.JSONDecodeError, ValueError) as e:
             self.logger.warning(
                 "portfolio_manager_parse_failed",

@@ -63,6 +63,22 @@ async def test_initial_state_when_redis_empty(engine):
 
 
 @pytest.mark.asyncio
+async def test_execute_paper_order_rejects_non_positive_size_explicitly(engine):
+    # ClearedTrade.final_size_usd is schema-validated >0, but the engine itself
+    # must not rely on a bare `assert` for this safety check (those vanish under
+    # `python -O`) — construct a valid trade then mutate past validation to
+    # confirm the engine's own explicit, non-strippable guard still fires.
+    cleared = ClearedTrade(
+        proposal_id="p1", asset="BTC-USD", side="BUY", order_type="MARKET",
+        final_size_usd=1000.0, stop_loss_pct=0.02,
+    )
+    cleared.final_size_usd = -1000.0
+
+    with pytest.raises(ValueError, match="final_size_usd must be positive"):
+        await engine.execute_paper_order(cleared)
+
+
+@pytest.mark.asyncio
 async def test_execute_buy_creates_new_position(engine, fake_timescale):
     cleared = ClearedTrade(
         proposal_id="p1", asset="BTC-USD", side="BUY", order_type="MARKET",

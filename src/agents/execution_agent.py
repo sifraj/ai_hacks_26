@@ -25,7 +25,10 @@ class ExecutionAgent(BaseAgent):
     async def _execute_one(
         self, cleared_trade: ClearedTrade, signal_ids: list[str]
     ) -> Fill:
-        assert settings.paper_trading is True, "PAPER_TRADING must be true — refusing to place a live order"
+        # Deliberately not a bare `assert` — assertions are stripped under `python -O`,
+        # which would silently disable this critical safety gate.
+        if settings.paper_trading is not True:
+            raise RuntimeError("PAPER_TRADING must be true — refusing to place a live order")
 
         fill = await paper_engine.execute_paper_order(cleared_trade)
 

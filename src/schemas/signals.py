@@ -15,7 +15,7 @@ class Signal(BaseModel):
     asset: str
     direction: Direction
     confidence_score: float = Field(ge=0.0, le=1.0)
-    horizon_hours: float
+    horizon_hours: float = Field(gt=0.0)
     supporting_factors: list[str] = Field(default_factory=list)
     contradicting_factors: list[str] = Field(default_factory=list)
     raw_metrics: dict[str, float] | None = None

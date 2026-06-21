@@ -16,10 +16,10 @@ class ProposedTrade(BaseModel):
     asset: str
     side: OrderSide
     order_type: OrderType
-    size_usd: float
-    limit_price: float | None = None
-    stop_loss_pct: float
-    take_profit_pct: float | None = None
+    size_usd: float = Field(gt=0.0)
+    limit_price: float | None = Field(default=None, gt=0.0)
+    stop_loss_pct: float = Field(gt=0.0, le=1.0)
+    take_profit_pct: float | None = Field(default=None, gt=0.0)
     trade_rationale: str
     signal_ids: list[str] = Field(default_factory=list)
     confidence_composite: float = Field(ge=0.0, le=1.0)
@@ -34,7 +34,7 @@ class ProposedTrade(BaseModel):
 class RiskDecision(BaseModel):
     proposal_id: str
     status: RiskDecisionStatus
-    approved_size_usd: float | None = None
+    approved_size_usd: float | None = Field(default=None, gt=0.0)
     risk_rationale: str
     rules_checked: list[str] = Field(default_factory=list)
     rules_violated: list[str] | None = None
@@ -54,9 +54,9 @@ class ClearedTrade(BaseModel):
     asset: str
     side: OrderSide
     order_type: OrderType
-    final_size_usd: float
-    limit_price: float | None = None
-    stop_loss_pct: float
+    final_size_usd: float = Field(gt=0.0)
+    limit_price: float | None = Field(default=None, gt=0.0)
+    stop_loss_pct: float = Field(gt=0.0, le=1.0)
     compliance_checks_passed: list[str] = Field(default_factory=list)
 
 
@@ -65,8 +65,8 @@ class Fill(BaseModel):
     cleared_id: str
     asset: str
     side: OrderSide
-    filled_size_usd: float
-    fill_price: float
-    fee_usd: float
+    filled_size_usd: float = Field(gt=0.0)
+    fill_price: float = Field(gt=0.0)
+    fee_usd: float = Field(ge=0.0)
     timestamp: str
     paper_trade: bool = True

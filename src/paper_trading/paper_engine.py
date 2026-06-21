@@ -103,7 +103,8 @@ class PaperTradingEngine:
         return state
 
     async def execute_paper_order(self, cleared_trade: ClearedTrade) -> Fill:
-        assert cleared_trade.final_size_usd > 0, "final_size_usd must be positive"
+        if cleared_trade.final_size_usd <= 0:
+            raise ValueError("final_size_usd must be positive")
 
         await asyncio.sleep(random.uniform(0.1, 0.5))
 
@@ -219,7 +220,10 @@ class PaperTradingEngine:
                 side="SELL",
                 order_type="MARKET",
                 final_size_usd=position.size_usd,
-                stop_loss_pct=0.0,
+                # stop_loss_pct is only meaningful for BUY fills opening/adding to a
+                # position (see _apply_fill) — unused here, but must satisfy the schema's
+                # (0, 1] bound, so use a harmless placeholder rather than 0.
+                stop_loss_pct=1.0,
                 compliance_checks_passed=["KILL_SWITCH_FORCE_CLOSE"],
             )
             fill = await self.execute_paper_order(cleared_trade)

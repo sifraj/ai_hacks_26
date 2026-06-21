@@ -110,6 +110,37 @@ class TestProposedTrade:
         with pytest.raises(ValidationError):
             self._trade(confidence_composite=1.1)
 
+    def test_negative_size_usd_rejected(self):
+        with pytest.raises(ValidationError):
+            self._trade(size_usd=-500.0)
+
+    def test_zero_size_usd_rejected(self):
+        with pytest.raises(ValidationError):
+            self._trade(size_usd=0.0)
+
+    def test_negative_stop_loss_pct_rejected(self):
+        with pytest.raises(ValidationError):
+            self._trade(stop_loss_pct=-0.02)
+
+    def test_stop_loss_pct_over_100_percent_rejected(self):
+        with pytest.raises(ValidationError):
+            self._trade(stop_loss_pct=1.5)
+
+    def test_negative_take_profit_pct_rejected(self):
+        with pytest.raises(ValidationError):
+            self._trade(take_profit_pct=-0.1)
+
+    def test_negative_limit_price_rejected(self):
+        with pytest.raises(ValidationError):
+            self._trade(order_type="LIMIT", limit_price=-100.0)
+
+    def test_zero_horizon_hours_rejected_on_signal(self):
+        with pytest.raises(ValidationError):
+            Signal(
+                timestamp="2026-06-20T00:00:00Z", source_agent="momentum_analyst",
+                asset="BTC-USD", direction="LONG", confidence_score=0.5, horizon_hours=0,
+            )
+
 
 class TestRiskDecision:
     def test_approved_requires_size(self):
@@ -125,6 +156,20 @@ class TestRiskDecision:
             risk_rationale="ok", rules_checked=["RISK_001"],
         )
         assert decision.approved_size_usd == 500.0
+
+    def test_negative_approved_size_rejected(self):
+        with pytest.raises(ValidationError):
+            RiskDecision(
+                proposal_id="p1", status="APPROVED", approved_size_usd=-500.0,
+                risk_rationale="ok", rules_checked=["RISK_001"],
+            )
+
+    def test_zero_approved_size_rejected(self):
+        with pytest.raises(ValidationError):
+            RiskDecision(
+                proposal_id="p1", status="APPROVED", approved_size_usd=0.0,
+                risk_rationale="ok", rules_checked=["RISK_001"],
+            )
 
     def test_rejected_requires_rules_violated(self):
         with pytest.raises(ValidationError):
@@ -149,6 +194,52 @@ class TestClearedTradeAndFill:
             final_size_usd=2000.0, stop_loss_pct=0.02,
         )
         assert trade.cleared_id
+
+    def test_cleared_trade_negative_final_size_rejected(self):
+        with pytest.raises(ValidationError):
+            ClearedTrade(
+                proposal_id="p1", asset="ETH-USD", side="BUY", order_type="MARKET",
+                final_size_usd=-2000.0, stop_loss_pct=0.02,
+            )
+
+    def test_cleared_trade_zero_stop_loss_pct_rejected(self):
+        with pytest.raises(ValidationError):
+            ClearedTrade(
+                proposal_id="p1", asset="ETH-USD", side="BUY", order_type="MARKET",
+                final_size_usd=2000.0, stop_loss_pct=0.0,
+            )
+
+    def test_fill_negative_filled_size_rejected(self):
+        with pytest.raises(ValidationError):
+            Fill(
+                cleared_id="c1", asset="ETH-USD", side="BUY",
+                filled_size_usd=-2000.0, fill_price=3500.0, fee_usd=12.0,
+                timestamp="2026-06-20T00:00:00Z",
+            )
+
+    def test_fill_negative_fill_price_rejected(self):
+        with pytest.raises(ValidationError):
+            Fill(
+                cleared_id="c1", asset="ETH-USD", side="BUY",
+                filled_size_usd=2000.0, fill_price=-3500.0, fee_usd=12.0,
+                timestamp="2026-06-20T00:00:00Z",
+            )
+
+    def test_fill_negative_fee_rejected(self):
+        with pytest.raises(ValidationError):
+            Fill(
+                cleared_id="c1", asset="ETH-USD", side="BUY",
+                filled_size_usd=2000.0, fill_price=3500.0, fee_usd=-1.0,
+                timestamp="2026-06-20T00:00:00Z",
+            )
+
+    def test_fill_zero_fee_is_ok(self):
+        fill = Fill(
+            cleared_id="c1", asset="ETH-USD", side="BUY",
+            filled_size_usd=2000.0, fill_price=3500.0, fee_usd=0.0,
+            timestamp="2026-06-20T00:00:00Z",
+        )
+        assert fill.fee_usd == 0.0
 
     def test_fill_defaults_paper_trade_true(self):
         fill = Fill(

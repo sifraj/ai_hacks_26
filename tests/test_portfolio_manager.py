@@ -96,10 +96,14 @@ async def test_invalid_trade_items_are_skipped_others_kept(manager, monkeypatch)
 
 @pytest.mark.asyncio
 async def test_capped_at_max_proposed_trades(manager, monkeypatch):
+    real_assets = [
+        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD",
+        "ADA-USD", "AVAX-USD", "DOT-USD",
+    ]
     items = [
-        {"asset": f"ASSET{i}-USD", "side": "BUY", "order_type": "MARKET", "size_usd": 1000.0,
+        {"asset": asset, "side": "BUY", "order_type": "MARKET", "size_usd": 1000.0,
          "stop_loss_pct": 0.02, "trade_rationale": "x", "confidence_composite": 0.5}
-        for i in range(8)
+        for asset in real_assets
     ]
     valid_json = json.dumps(items)
 
@@ -110,3 +114,65 @@ async def test_capped_at_max_proposed_trades(manager, monkeypatch):
 
     trades = await manager.run(_signal_batch(), _regime(), _state())
     assert len(trades) == MAX_PROPOSED_TRADES
+
+
+def _signal_batch_with_signals() -> SignalBatch:
+    from src.schemas.signals import Signal
+
+    signal = Signal(
+        timestamp="2026-06-20T00:00:00Z", source_agent="momentum_analyst", asset="BTC-USD",
+        direction="LONG", confidence_score=0.6, horizon_hours=4,
+    )
+    return SignalBatch(tick_id="t1", timestamp="2026-06-20T00:00:00Z", signals=[signal])
+
+
+@pytest.mark.asyncio
+async def test_unknown_asset_is_rejected(manager, monkeypatch):
+    valid_json = json.dumps([
+        {"asset": "DOGE-USD", "side": "BUY", "order_type": "MARKET", "size_usd": 1000.0,
+         "stop_loss_pct": 0.02, "trade_rationale": "x", "confidence_composite": 0.5},
+    ])
+
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+        return valid_json
+
+    monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
+
+    trades = await manager.run(_signal_batch(), _regime(), _state())
+    assert trades == []
+
+
+@pytest.mark.asyncio
+async def test_hallucinated_signal_ids_are_sanitized_not_rejected(manager, monkeypatch):
+    batch = _signal_batch_with_signals()
+    real_id = batch.signals[0].signal_id
+    valid_json = json.dumps([
+        {"asset": "BTC-USD", "side": "BUY", "order_type": "MARKET", "size_usd": 1000.0,
+         "stop_loss_pct": 0.02, "trade_rationale": "x", "confidence_composite": 0.5,
+         "signal_ids": [real_id, "hallucinated-id-123"]},
+    ])
+
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+        return valid_json
+
+    monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
+
+    trades = await manager.run(batch, _regime(), _state())
+    assert len(trades) == 1
+    assert trades[0].signal_ids == [real_id]
+
+
+@pytest.mark.asyncio
+async def test_negative_size_rejected_by_schema(manager, monkeypatch):
+    valid_json = json.dumps([
+        {"asset": "BTC-USD", "side": "BUY", "order_type": "MARKET", "size_usd": -500.0,
+         "stop_loss_pct": 0.02, "trade_rationale": "x", "confidence_composite": 0.5},
+    ])
+
+    async def fake_call_llm(messages, system_prompt, max_tokens=2000):
+        return valid_json
+
+    monkeypatch.setattr(manager, "_call_llm", fake_call_llm)
+
+    trades = await manager.run(_signal_batch(), _regime(), _state())
+    assert trades == []
