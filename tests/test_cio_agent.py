@@ -103,3 +103,70 @@ async def test_schema_invalid_response_falls_back(agent, monkeypatch):
 
     regime = await agent.run(batch)
     assert regime.regime == "RANGING"
+
+
+@pytest.mark.asyncio
+async def test_markdown_fenced_response_is_parsed_not_fallback(agent, monkeypatch):
+    batch = _signal_batch()
+    fenced_json = (
+        '```json\n'
+        '{"tick_id": "t1", "timestamp": "2026-06-20T00:00:00Z", "regime": "RISK_ON", '
+        '"posture": "AGGRESSIVE", "posture_multiplier": 1.0, '
+        '"regime_rationale": "strong momentum", "signal_ids_cited": ["a", "b", "c"]}\n'
+        '```'
+    )
+
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+        return fenced_json
+
+    monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
+
+    regime = await agent.run(batch)
+    assert regime.regime == "RISK_ON"
+    assert regime.regime_rationale == "strong momentum"
+
+
+@pytest.mark.asyncio
+async def test_aliased_field_names_are_recovered_not_fallback(agent, monkeypatch):
+    batch = _signal_batch()
+    real_id = batch.signals[0].signal_id
+    aliased_json = (
+        '{"tick_id": "t1", "timestamp": "2026-06-20T00:00:00Z", "regime": "RANGING", '
+        '"posture": "NEUTRAL", "posture_scalar": 0.6, '
+        f'"regime_rationale": "mixed signals", "key_signals_cited": ["{real_id}"]}}'
+    )
+
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+        return aliased_json
+
+    monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
+
+    regime = await agent.run(batch)
+    # Recovered Claude's real judgment, not the hardcoded fallback.
+    assert regime.regime == "RANGING"
+    assert regime.posture == "NEUTRAL"
+    assert regime.posture_multiplier == 0.6
+    assert regime.regime_rationale == "mixed signals"
+    assert real_id in regime.signal_ids_cited
+    assert len(regime.signal_ids_cited) >= 3
+
+
+@pytest.mark.asyncio
+async def test_recovery_pads_with_real_signal_ids_when_few_cited(agent, monkeypatch):
+    batch = _signal_batch(n=5)
+    aliased_json = (
+        '{"tick_id": "t1", "timestamp": "2026-06-20T00:00:00Z", "regime": "RANGING", '
+        '"posture": "NEUTRAL", "posture_multiplier": 0.6, '
+        '"regime_rationale": "thin data", "signal_ids_cited": []}'
+    )
+
+    async def fake_call_llm(messages, system_prompt, max_tokens=1000):
+        return aliased_json
+
+    monkeypatch.setattr(agent, "_call_llm", fake_call_llm)
+
+    regime = await agent.run(batch)
+    assert regime.regime_rationale == "thin data"  # real judgment preserved
+    assert len(regime.signal_ids_cited) >= 3
+    real_ids = {s.signal_id for s in batch.signals}
+    assert all(sid in real_ids for sid in regime.signal_ids_cited)

@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from src.agents.base_agent import BaseAgent
+from src.agents.llm_json import strip_json_fences
 from src.schemas.portfolio import PortfolioState
 from src.schemas.regime import MarketRegime
 from src.schemas.signals import SignalBatch
@@ -56,7 +57,7 @@ class PortfolioManager(BaseAgent):
         return json.dumps(payload)
 
     def _parse_proposed_trades(self, raw_text: str, tick_id: str) -> list[ProposedTrade]:
-        data = json.loads(raw_text)
+        data = json.loads(strip_json_fences(raw_text))
         if not isinstance(data, list):
             raise ValueError("expected a JSON array of ProposedTrade objects")
 

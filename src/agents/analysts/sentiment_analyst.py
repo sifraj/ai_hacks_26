@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.agents.base_agent import BaseAgent
+from src.agents.llm_json import strip_json_fences
 from src.data.redis_client import redis_client
 from src.schemas.signals import Signal
 
@@ -72,7 +73,7 @@ class SentimentAnalyst(BaseAgent):
         return "\n".join(lines)
 
     def _parse_signals(self, raw_text: str, valid_assets: set[str]) -> list[Signal]:
-        data = json.loads(raw_text)
+        data = json.loads(strip_json_fences(raw_text))
         if not isinstance(data, list):
             raise ValueError("expected a JSON array of Signal objects")
 
